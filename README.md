@@ -5,6 +5,7 @@
 Ideal for quickly sharing screenshots or images in environments like IRC without needing to manually use the website interface.
 
 **Author:** Ritchie Cunningham <ritchie@ritchiecunningham.co.uk>
+
 **Version:** 1.0 (as of 22/04/2025)
 
 ## Features

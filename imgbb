@@ -45,6 +45,8 @@ filepath=""
 expire_seconds="7200" # 2h - Set to "" for no expiry. or use flag -e 0, never or none.
 custom_name=""
 markdown_mode="false"
+clipboard="$XDG_SESSION_TYPE"
+
 [ ! -e "$config_file" ] || . "$config_file"
 
 print_usage() {
@@ -194,12 +196,70 @@ fi
 # Now check other dependencies.
 check_command curl
 check_command jq
-# Only check xclip if we plan to use the clipboard.
+# Only check the clipboard command if we plan to use the clipboard.
 if [ -z "$filepath" ]; then
+  case "$clipboard" in
+  x11)
     check_command xclip
+    ;;
+  wayland)
+    check_command wl-paste
+    ;;
+  *)
+    die "Unsupported clipboard: $clipboard"
+  esac
 fi
 
 # === Main Logic. ===
+paste_x11() {
+  declare tmp
+
+  tmp_img="$(mktemp)" || die "Could not create temp file."
+
+  xclip -selection clipboard -t image/png -o >"$tmp_img" 2>/dev/null
+  if [ -s "$tmp_img" ]; then
+    mv "$tmp_img" "$tmp_img.png"
+    printf "%s\n" "$tmp_img.png"
+    return 0
+  fi
+
+  xclip -selection clipboard -t image/jpeg -o >"$tmp_img" 2>/dev/null
+  if [ -s "$tmp_img" ]; then
+    mv "$tmp_img" "$tmp_img.jpeg"
+    printf "%s\n" "$tmp_img.jpeg"
+    return 0
+  fi
+
+  rm -f "$tmp_img"
+  die "Could not get PNG or JPEG image data from clipboard."
+}
+
+paste_wl() {
+  declare tmp_img
+  declare format
+
+  format="$(wl-paste -l | grep -m1 -F -e image/png -e image/jpeg)" ||
+    die "Invalid file type in clipboard."
+
+  tmp_img="$(mktemp)" || die "Could not create temp file."
+
+  if wl-paste -t "$format" >"$tmp_img" 2>/dev/null; then
+    mv "$tmp_img" "$tmp_img.${format##image/}"
+    printf "%s\n" "$tmp_img.${format##image/}"
+    return 0
+  fi
+
+  rm -f "$tmp_img"
+  die "Could not get PNG or JPEG image data from clipboard."
+}
+
+yank_x11() {
+  xclip -selection clipboard
+}
+
+yank_wl() {
+  wl-copy
+}
 
 TMP_IMG="" # Path to the image file to upload.
 image_source_description=""
@@ -207,32 +267,13 @@ image_source_description=""
 if [ -z "$filepath" ]; then
   # === Clipboard Input Mode. ===
   image_source_description="clipboard"
-  # Create temporary file(s).
-  TMP_IMG_PNG=$(mktemp --suffix=.png)
-  TMP_IMG_JPEG=$(mktemp --suffix=.jpg)
-  # Ensure temporary files are cleaned up on script exit.
-  trap 'echo "Cleaning up temp files..."; rm -f "$TMP_IMG_PNG" "$TMP_IMG_JPEG"' EXIT
-
-  # Try extracting PNG image from clipboard.
-  notify_cmd "ImgBB Uploader" "Getting image from clipboard..."
-  if xclip -selection clipboard -t image/png -o > "$TMP_IMG_PNG" 2>/dev/null && [ -s "$TMP_IMG_PNG" ]; then
-    echo "Retrieved PNG image from clipboard."
-    TMP_IMG="$TMP_IMG_PNG"
-    rm -f "$TMP_IMG_JPEG" # Remove unused JPEG temp file.
-  else
-    # If PNG fails or is empty, try JPEG.
-    echo "PNG failed or empty, trying JPEG..."
-    if xclip -selection clipboard -t image/jpeg -o > "$TMP_IMG_JPEG" 2>/dev/null && [ -s "$TMP_IMG_JPEG" ]; then
-      echo "Retrieved JPEG image from clipboard."
-      TMP_IMG="$TMP_IMG_JPEG"
-      rm -f "$TMP_IMG_PNG" # Remove unused PNG temp file.
-    else
-      # If both fail or are empty.
-      notify_cmd -u critical "ImgBB Upload Error" "Could not get PNG or JPEG image data from clipboard."
-      echo "Error: Could not get PNG or JPEG image data from clipboard." >&2
-      exit 1
-    fi
-  fi
+  TMP_IMG="$(
+    case "$clipboard" in
+    x11)      paste_x11;;
+    wayland)  paste_wl;;
+    esac
+  )" || exit
+  trap 'rm -f "$TMP_IMG"' EXIT
 else
   # === File Input Mode. ===
   image_source_description="file '$filepath'"
@@ -299,14 +340,14 @@ fi
 # Output the URL to terminal and copy to clipboard.
 echo "Image URL:"
 echo "$output_url"
-# Use xclip only if we determined we are not uploading from file (i.e., we used clipboard input)
+# Copy URL only if we determined we are not uploading from file (i.e., we used clipboard input)
 # Or always copy? Let's always copy for now.
-if command -v xclip &> /dev/null; then
-    echo "$output_url" | xclip -selection clipboard
-    notify_cmd "ImgBB Uploader" "Success! URL copied: $output_url"
-else
-    notify_cmd "ImgBB Uploader" "Success! URL: $output_url"
-fi
+
+case "$clipboard" in
+x11)      printf "%s\n" "$output_url" | yank_x11;;
+wayland)  printf "%s\n" "$output_url" | yank_wl;;
+esac
+notify_cmd "ImgBB Uploader" "Success! URL copied: $output_url"
 
 # Temporary files are removed automatically by the 'trap' command on exit if they were created.
 exit 0

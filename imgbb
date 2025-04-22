@@ -10,38 +10,6 @@
 # Version:     1.2
 # Date:        22/04/2025
 # -----------------------------------------------------------------------------
-# Usage Examples:
-#
-# Examples:
-#   imgbb                 # Upload clipboard, expire 2h.
-#   imgbb my_image.png    # Upload file, expire 2h (or whatever you declare expire_seconds to).
-#   imgbb -e 10m          # Upload clipboard, expire 10m.
-#   imgbb -e 0            # Upload clipboard, never expire.
-#   imgbb -n "Diagram" --markdown img.jpg.
-#   imgbb -h              # See help for more information.
-# -----------------------------------------------------------------------------
-# Dependencies:
-#   - bash (v4+ required for =~, (( )), BASH_REMATCH)
-#   - curl: (e.g., sudo apt install curl)
-#   - jq:   (e.g., sudo apt install jq)
-#   - Clipboard tool:
-#     - xclip: (X11 clipboard access) (e.g., sudo apt install xclip)
-#     - wl-clipboard (For Wayland clipboard access) (e.g., sudo apt install wl-clipboard)
-#   - notify-send: (Optional, for desktop notifications) (e.g., sudo apt install notify-send)
-#   - Coreutils: (mktemp, basename, rm, cat, echo, etc. - usually standard)
-# -----------------------------------------------------------------------------
-# Configuration:
-#   Requires an ImgBB API key (v1). Get one free: https://api.imgbb.com/
-#   Set the API key using ONE of these methods (checked in this order):
-#     1. Environment Variable: IMGBB_API_KEY="YOUR KEY HERE"
-#     2. Config File: Create ~/.config/imgbb_uploader.conf and add a line like:
-#           api_key="YOUR_KEY_HERE"
-#           (We'll soon have other defaults to set here).
-# -----------------------------------------------------------------------------
-# Notes:
-#   - Supports both X11 (using xclip) and Wayland (using wl-clipboard) sessions.
-#       It detects the session type using $XDG_SESSION_TYPE.
-# -----------------------------------------------------------------------------
 
 # === Default Configuration & Argument Parsing. ===
 

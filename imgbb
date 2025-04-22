@@ -1,0 +1,303 @@
+#!/bin/bash
+# -----------------------------------------------------------------------------
+# Script Name: imgbb
+# Description: Uploads an image from the system clipboard or a specified file
+#              to ImgBB (imgbb.com) using their V1 API. Retrieves the direct
+#              image URL, prints it to stdout, and copies it to the X11 clipboard.
+# Author:      Ritchie Cunningham <ritchie@ritchiecunningham.co.uk>
+# License:     GPL License
+# Version:     3.0
+# Date:        22/04/2025
+# -----------------------------------------------------------------------------
+# Usage Examples:
+#
+# Examples:
+#   imgbb                 # Upload clipboard, expire 2h.
+#   imgbb my_image.png    # Upload file, expire 2h (or whatever you declare expire_seconds to).
+#   imgbb -e 10m          # Upload clipboard, expire 10m.
+#   imgbb -e 0            # Upload clipboard, never expire.
+#   imgbb -n "Diagram" --markdown img.jpg.
+#   imgbb -h              # See help for more information.
+# -----------------------------------------------------------------------------
+# Dependencies:
+#   - bash (v4+ required for =~, (( )), BASH_REMATCH)
+#   - curl: (e.g., sudo apt install curl)
+#   - jq:   (e.g., sudo apt install jq)
+#   - xclip: (X11 clipboard access) (e.g., sudo apt install xclip)
+#   - notify-send: (Optional, for desktop notifications) (e.g., sudo apt install notify-send)
+#   - Coreutils: (mktemp, basename, rm, cat, echo, etc. - usually standard)
+# -----------------------------------------------------------------------------
+# Configuration:
+#   Requires an ImgBB API key (v1). Get one free: https://api.imgbb.com/
+#   Store the key:
+#     - File: ~/.config/imgbb_uploader/api_key (chmod 600 recommended)
+#        (Create directory: mkdir -p ~/.config/imgbb_uploader)
+# -----------------------------------------------------------------------------
+# Notes:
+#   - Uses 'xclip', works on X11 sessions only. Wayland requires 'wl-clipboard'.
+# -----------------------------------------------------------------------------
+
+# === Default Configuration & Argument Parsing. ===
+API_KEY_FILE="$HOME/.config/imgbb_uploader/api_key"
+filepath=""
+expire_seconds="7200" # 2h - Set to "" for no expiry. or use flag -e 0, never or none.
+custom_name=""
+markdown_mode="false"
+
+print_usage() {
+  echo "Usage: $(basename "$0") [options] [filepath]"
+  echo "Uploads image from clipboard (default) or filepath to ImgBB."
+  echo ""
+  echo "Options:"
+  echo "  [filepath]             Optional path to an image file to upload."
+  echo "  -e, --expire DURATION  Set auto-deletion timeout. DURATION is a number"
+  echo "                          followed by s(econds), m(inutes), h(ours), or d(ays)."
+  echo "                          Default unit is minutes if unspecified."
+  echo "                          '0', 'none', 'never' to override default expiry."
+  echo "  -n, --name NAME        Set a custom filename for the uploaded image."
+  echo "  --markdown             Output/copy the URL in Markdown image format."
+  echo "  -h, --help             Show this help message."
+}
+
+# Parse command-line options.
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    -e|--expire)
+      expire_input="$2" # Usr input.
+      # Check for 'no expiry value'.
+      if [[ "$expire_input" == "0" || "$expire_input" == "never" || "$expire_input" == 'none' ]]; then
+        expire_seconds="" # Unset for no expiration.
+        echo "Setting NO expiration."
+      else
+        # Proceed with parsing regular.
+        value="" unit="" seconds=""
+
+        # Regex to capture the number part and optional unit part (s,m,h,d)
+        if [[ "$expire_input" =~ ^([0-9]+)([smhd]?)$ ]]; then
+        value="${BASH_REMATCH[1]}" # The numeric part.
+        unit="${BASH_REMATCH[2]}" # The unit part.
+
+        # Default to minutes if no unit was provided.
+        if [ -z "$unit" ]; then unit="s"; fi
+
+        # Calculate total seconds based on the unit.
+        case "$unit" in
+          s) seconds=$((value)) ;;
+          m) seconds=$((value * 60)) ;;
+          h) seconds=$((value * 3600)) ;; # 60*60.
+          d) seconds=$((value * 86400)) ;; # 60*60*24.
+          *) # Not really requried given the regex, but hey-ho.
+            echo "Error: Internal error parsing unit '$unit' from '$expire_input'."
+            exit 1 ;;
+        esac
+
+        # Validate against ImgBB limits (60 seconds to 15552000 seconds / 180 days).
+        if (( seconds < 60 )) || (( seconds > 15552000 )); then
+        echo "Error: Calculated expiration ($seconds seconds) is outside of ImgBB's allowed range (60s - 15552000s)." >&2
+        exit 1
+        fi
+
+        # Store the final result.
+        expire_seconds="$seconds"
+        echo "Expiration set to $expire_seconds seconds ($expire_input)"
+        else
+          # Someone did funky input. Tell them to stop that!
+          echo "Error: Invalid expiration format '$expire_input'." >&2
+          echo "Use a number optionally followed by s, m, h or d OR use 0/none/never (e.g., 300, 5m, 2h, 7d)." >&2
+          print_usage # Maybe they need help.
+          exit 1
+        fi
+      fi
+      shift
+      shift
+      ;;
+    -n|--name)
+      custom_name="$2"
+      shift
+      shift
+      ;;
+    --markdown)
+      markdown_mode="true"
+      shift
+      ;;
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    -*)
+      # Unknown option.
+      echo "Error: Unknown option '$1'" >&2
+      print_usage
+      exit 1
+      ;;
+    *)
+      # Assume it's the filepath (only one allowed).
+      if [ -n "$filepath" ]; then
+          echo "Error: Multiple filepaths provided ($filepath, $1). Only one allowed." >&2
+          print_usage
+          exit 1
+      fi
+      filepath="$1"
+      shift
+      ;;
+  esac
+done
+
+# Check if filepath exists and is readable if provided.
+if [ -n "$filepath" ] && [ ! -r "$filepath" ]; then
+    echo "Error: Cannot read file '$filepath'" >&2
+    exit 1
+fi
+
+# === Read API Key. ===
+API_KEY=""
+if [[ -f "$API_KEY_FILE" ]]; then
+  API_KEY=$(cat "$API_KEY_FILE")
+elif [[ -n "$IMGBB_API_KEY" ]]; then
+  API_KEY="$IMGBB_API_KEY"
+fi
+
+# Check if API key is actually set.
+if [ -z "$API_KEY" ]; then
+  # Use function defined below if notify-send exists.
+  notify_cmd -u critical "ImgBB Upload Error" "API Key not found." &>/dev/null
+  echo "Error: API Key not found." >&2
+  echo "Please store your key in '$API_KEY_FILE' or set the IMGBB_API_KEY environment variable." >&2
+  exit 1
+fi
+
+# === Check Dependencies. ===
+check_command() {
+  if ! command -v "$1" &> /dev/null; then
+    notify_cmd -u critical "ImgBB Upload Error" "'$1' command not found. Please install it." &>/dev/null
+    echo "Error: '$1' command not found. Please install it (e.g., sudo apt install $1)." >&2
+    exit 1
+  fi
+}
+# Define notify_cmd first based on whether notify-send exists.
+if ! command -v notify-send &> /dev/null; then
+  notify_cmd() { :; } # No-op if not found.
+  echo "Warning: notify-send not found. Desktop notifications disabled." >&2
+else
+  notify_cmd() { notify-send "$@"; } # Actual command if found.
+fi
+# Now check other dependencies.
+check_command curl
+check_command jq
+# Only check xclip if we plan to use the clipboard.
+if [ -z "$filepath" ]; then
+    check_command xclip
+fi
+
+# === Main Logic. ===
+
+TMP_IMG="" # Path to the image file to upload.
+image_source_description=""
+# Setup trap *only* if using clipboard mode.
+if [ -z "$filepath" ]; then
+  # === Clipboard Input Mode. ===
+  image_source_description="clipboard"
+  # Create temporary file(s).
+  TMP_IMG_PNG=$(mktemp --suffix=.png)
+  TMP_IMG_JPEG=$(mktemp --suffix=.jpg)
+  # Ensure temporary files are cleaned up on script exit.
+  trap 'echo "Cleaning up temp files..."; rm -f "$TMP_IMG_PNG" "$TMP_IMG_JPEG"' EXIT
+
+  # Try extracting PNG image from clipboard.
+  notify_cmd "ImgBB Uploader" "Getting image from clipboard..."
+  if xclip -selection clipboard -t image/png -o > "$TMP_IMG_PNG" 2>/dev/null && [ -s "$TMP_IMG_PNG" ]; then
+    echo "Retrieved PNG image from clipboard."
+    TMP_IMG="$TMP_IMG_PNG"
+    rm -f "$TMP_IMG_JPEG" # Remove unused JPEG temp file.
+  else
+    # If PNG fails or is empty, try JPEG.
+    echo "PNG failed or empty, trying JPEG..."
+    if xclip -selection clipboard -t image/jpeg -o > "$TMP_IMG_JPEG" 2>/dev/null && [ -s "$TMP_IMG_JPEG" ]; then
+      echo "Retrieved JPEG image from clipboard."
+      TMP_IMG="$TMP_IMG_JPEG"
+      rm -f "$TMP_IMG_PNG" # Remove unused PNG temp file.
+    else
+      # If both fail or are empty.
+      notify_cmd -u critical "ImgBB Upload Error" "Could not get PNG or JPEG image data from clipboard."
+      echo "Error: Could not get PNG or JPEG image data from clipboard." >&2
+      exit 1
+    fi
+  fi
+else
+  # === File Input Mode. ===
+  image_source_description="file '$filepath'"
+  TMP_IMG="$filepath" # Use the provided file path directly.
+  echo "Using image from file: $filepath"
+  trap '' EXIT # Clear trap if we are not using temp files.
+fi
+
+# Build curl options.
+curl_opts=(-s -L -X POST)
+curl_opts+=(--form "key=$API_KEY")
+curl_opts+=(--form "image=@$TMP_IMG")
+
+if [ -n "$expire_seconds" ]; then
+  curl_opts+=(--form "expiration=$expire_seconds")
+fi
+if [ -n "$custom_name" ]; then
+  curl_opts+=(--form "name=$custom_name")
+  echo "Setting custom name to '$custom_name'."
+fi
+
+# Upload the image using curl.
+notify_cmd "ImgBB Uploader" "Uploading image from $image_source_description..."
+response=$(curl "${curl_opts[@]}" 'https://api.imgbb.com/1/upload')
+
+# Check curl exit status.
+if [ $? -ne 0 ]; then
+  notify_cmd -u critical "ImgBB Upload Error" "curl command failed during upload. Check network?"
+  echo "Error: curl command failed during upload. Check network connection." >&2
+  exit 1
+fi
+
+# Parse the JSON response using jq.
+# Check for overall success status from ImgBB API.
+success=$(echo "$response" | jq -r '.success')
+
+if [ "$success" != "true" ]; then
+  error_msg=$(echo "$response" | jq -r '.error.message // "Unknown API error"')
+  notify_cmd -u critical "ImgBB Upload Error" "API Error: $error_msg"
+  echo "Error: ImgBB API returned an error - $error_msg" >&2
+  echo "Full response: $response" >&2
+  exit 1
+fi
+
+# Extract the direct image URL.
+image_url=$(echo "$response" | jq -r '.data.url')
+
+# Check if URL was successfully extracted.
+if [ -z "$image_url" ] || [ "$image_url" == "null" ]; then
+  notify_cmd -u critical "ImgBB Upload Error" "Could not parse image URL from API response."
+  echo "Error: Could not parse image URL from API response." >&2
+  echo "Full response: $response" >&2
+  exit 1
+fi
+
+# Format output based on markdown flag.
+output_url="$image_url"
+if [ "$markdown_mode" = "true" ]; then
+  # Basic markdown image syntax - assumes filename is not needed for alt text here.
+  output_url="![](${image_url})"
+  echo "Formatting as Markdown."
+fi
+
+# Output the URL to terminal and copy to clipboard.
+echo "Image URL:"
+echo "$output_url"
+# Use xclip only if we determined we are not uploading from file (i.e., we used clipboard input)
+# Or always copy? Let's always copy for now.
+if command -v xclip &> /dev/null; then
+    echo "$output_url" | xclip -selection clipboard
+    notify_cmd "ImgBB Uploader" "Success! URL copied: $output_url"
+else
+    notify_cmd "ImgBB Uploader" "Success! URL: $output_url"
+fi
+
+# Temporary files are removed automatically by the 'trap' command on exit if they were created.
+exit 0

@@ -6,6 +6,8 @@ Ideal for quickly sharing screenshots or images in environments like IRC without
 
 **Author:** Ritchie Cunningham <ritchie@ritchiecunningham.co.uk>
 
+**Contributors:** dacav <dacav@fastmail.com>
+
 **Version:** 1.0 (as of 22/04/2025)
 
 ## Features
@@ -30,10 +32,11 @@ Make sure you have the following command-line tools installed:
     ```bash
     sudo apt install jq # Debian.
     ```
-* **xclip:** Used for accessing the X11 clipboard. **This script will not work on Wayland sessions.**
+* **xclip:** Used for accessing the X11 clipboard. **This is for X11. Wayland users, see below..**
     ```bash
     sudo apt install xclip # Debian.
     ```
+* **wl-clipboard** Used for accessing the Wayland clipboard. **This is for Wayland. X11 users, see above.**
 * **notify-send (Optional):** Used for desktop notifications. The script works without it but won't show popups.
     ```bash
     sudo apt install notify-send # Debian (often in libnotify-bin).
@@ -55,23 +58,26 @@ Make sure you have the following command-line tools installed:
     mkdir -p ~/.local/bin
     ln -s "$(pwd)/imgbb" ~/.local/bin/imgbb
     ```
-    Now you can just run `imgbb` from your terminal.
 
 ## Configuration
 
 This script requires a **free API key** from ImgBB:
 
 1.  Go to [https://api.imgbb.com/](https://api.imgbb.com/) and register or log in to get your key.
-2.  Store the key in `.config/imgbb/uploader/api_key`.
-    * **File** Create the directory and file, then paste *only* your API key inside:
-        ```bash
-        mkdir -p ~/.config/imgbb_uploader
-        nano ~/.config/imgbb_uploader/api_key
-        # Paste your key, save the file.
-        # Set permissions so only you can read it:
-        chmod 600 ~/.config/imgbb_uploader/api_key
-        ```
-
+2.  Set the API key using *one* of these methods (script checks in this order):
+    *  Store the key in `.config/imgbb/uploader/api_key`.
+      * **File** Create the config file `~/.config/imgbb_uploader.conf` and add a line like:
+          ```bash
+          echo "api_key="YOUR_KEY_HERE" > ~/.config/imgbb_uploader.conf
+          # Set permissions so only you can read it:
+          chmod 600 ~/.config/imgbb_uploader.conf
+          ```
+      * **Environment Variable:** Set the `IMGBB_API_KEY` variable in your environment
+          ```bash
+          export IMGBB_API_KEY="YOUR KEY HERE"
+          ```
+    Now you can just run `imgbb` from your terminal.
+    
 ## Usage
 **Options:**
 
@@ -104,4 +110,4 @@ imgbb -h
 
 # Notes
 
-Currently relies on xclip and therefore only works reliably under X11 sessions. Wayland support would require adding logic to use wl-clipboard.
+-  Supports both X11 (using xclip) and Wayland (using wl-clipboard) sessions. It detects the session type using $XDG_SESSION_TYPE.

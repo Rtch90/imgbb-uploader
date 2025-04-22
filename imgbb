@@ -279,7 +279,6 @@ else
   image_source_description="file '$filepath'"
   TMP_IMG="$filepath" # Use the provided file path directly.
   echo "Using image from file: $filepath"
-  trap '' EXIT # Clear trap if we are not using temp files.
 fi
 
 # Build curl options.

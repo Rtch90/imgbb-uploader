@@ -38,11 +38,14 @@
 # -----------------------------------------------------------------------------
 
 # === Default Configuration & Argument Parsing. ===
-API_KEY_FILE="$HOME/.config/imgbb_uploader/api_key"
+
+api_key=""
+config_file="$HOME/.config/imgbb_uploader.conf"
 filepath=""
 expire_seconds="7200" # 2h - Set to "" for no expiry. or use flag -e 0, never or none.
 custom_name=""
 markdown_mode="false"
+[ ! -e "$config_file" ] || . "$config_file"
 
 print_usage() {
   echo "Usage: $(basename "$0") [options] [filepath]"
@@ -151,19 +154,16 @@ if [ -n "$filepath" ] && [ ! -r "$filepath" ]; then
 fi
 
 # === Read API Key. ===
-API_KEY=""
-if [[ -f "$API_KEY_FILE" ]]; then
-  API_KEY=$(cat "$API_KEY_FILE")
-elif [[ -n "$IMGBB_API_KEY" ]]; then
-  API_KEY="$IMGBB_API_KEY"
+if [[ -n "$IMGBB_API_KEY" ]]; then
+  api_key="$IMGBB_API_KEY"
 fi
 
 # Check if API key is actually set.
-if [ -z "$API_KEY" ]; then
+if [ -z "$api_key" ]; then
   # Use function defined below if notify-send exists.
   notify_cmd -u critical "ImgBB Upload Error" "API Key not found." &>/dev/null
   echo "Error: API Key not found." >&2
-  echo "Please store your key in '$API_KEY_FILE' or set the IMGBB_API_KEY environment variable." >&2
+  echo "Please store your key in '$config_file' or set the IMGBB_API_KEY environment variable." >&2
   exit 1
 fi
 
@@ -234,7 +234,7 @@ fi
 
 # Build curl options.
 curl_opts=(-s -L -X POST)
-curl_opts+=(--form "key=$API_KEY")
+curl_opts+=(--form "key=$api_key")
 curl_opts+=(--form "image=@$TMP_IMG")
 
 if [ -n "$expire_seconds" ]; then

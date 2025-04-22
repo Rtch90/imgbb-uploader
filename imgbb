@@ -5,8 +5,9 @@
 #              to ImgBB (imgbb.com) using their V1 API. Retrieves the direct
 #              image URL, prints it to stdout, and copies it to the X11 clipboard.
 # Author:      Ritchie Cunningham <ritchie@ritchiecunningham.co.uk>
-# License:     GPL License
-# Version:     3.0
+# Contributors: dacav <dacav@fastmail.com>
+# License:     GPL 3.0 License
+# Version:     1.2
 # Date:        22/04/2025
 # -----------------------------------------------------------------------------
 # Usage Examples:
@@ -23,18 +24,23 @@
 #   - bash (v4+ required for =~, (( )), BASH_REMATCH)
 #   - curl: (e.g., sudo apt install curl)
 #   - jq:   (e.g., sudo apt install jq)
-#   - xclip: (X11 clipboard access) (e.g., sudo apt install xclip)
+#   - Clipboard tool:
+#     - xclip: (X11 clipboard access) (e.g., sudo apt install xclip)
+#     - wl-clipboard (For Wayland clipboard access) (e.g., sudo apt install wl-clipboard)
 #   - notify-send: (Optional, for desktop notifications) (e.g., sudo apt install notify-send)
 #   - Coreutils: (mktemp, basename, rm, cat, echo, etc. - usually standard)
 # -----------------------------------------------------------------------------
 # Configuration:
 #   Requires an ImgBB API key (v1). Get one free: https://api.imgbb.com/
-#   Store the key:
-#     - File: ~/.config/imgbb_uploader/api_key (chmod 600 recommended)
-#        (Create directory: mkdir -p ~/.config/imgbb_uploader)
+#   Set the API key using ONE of these methods (checked in this order):
+#     1. Environment Variable: IMGBB_API_KEY="YOUR KEY HERE"
+#     2. Config File: Create ~/.config/imgbb_uploader.conf and add a line like:
+#           api_key="YOUR_KEY_HERE"
+#           (We'll soon have other defaults to set here).
 # -----------------------------------------------------------------------------
 # Notes:
-#   - Uses 'xclip', works on X11 sessions only. Wayland requires 'wl-clipboard'.
+#   - Supports both X11 (using xclip) and Wayland (using wl-clipboard) sessions.
+#       It detects the session type using $XDG_SESSION_TYPE.
 # -----------------------------------------------------------------------------
 
 # === Default Configuration & Argument Parsing. ===
@@ -93,7 +99,7 @@ while [[ $# -gt 0 ]]; do
         unit="${BASH_REMATCH[2]}" # The unit part.
 
         # Default to minutes if no unit was provided.
-        if [ -z "$unit" ]; then unit="s"; fi
+        if [ -z "$unit" ]; then unit="m"; fi
 
         # Calculate total seconds based on the unit.
         case "$unit" in

@@ -282,7 +282,7 @@ else
 fi
 
 # Build curl options.
-curl_opts=(-s -L -X POST)
+curl_opts=(-s -S -f -L -X POST)
 curl_opts+=(--form "key=$api_key")
 curl_opts+=(--form "image=@$TMP_IMG")
 

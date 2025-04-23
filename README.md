@@ -17,6 +17,7 @@ Ideal for quickly sharing screenshots or images in environments like IRC without
 * Set an optional auto-deletion expiration time (e.g., `5m`, `2h`, `7d`, `0` for none).
 * Specify a custom filename for the uploaded image on ImgBB.
 * Optionally output and copy the URL in Markdown format.
+* Optionally output and copy the URL in orgmode format.
 * Copies the resulting URL to the X11 clipboard.
 * Provides desktop notifications for progress and success/failure (optional).
 
@@ -85,6 +86,7 @@ This script requires a **free API key** from ImgBB:
 * `-e, --expire DURATION`: Set auto-deletion timeout. DURATION is a number followed by `s`(econds), `m`(inutes), `h`(ours), or `d`(ays) (e.g., `5m`, `2h`, `7d`, `300s`). Range: 60s-180d. Use `0`, `none`, or `never` for no expiration (overrides the default). Default expiration is 2 hours (7200s) if this option is not used.
 * `-n, --name NAME`: Set a custom filename for the uploaded image on ImgBB.
 * `--markdown`: Output and copy the URL in Markdown image format: `![](URL)`
+* `--org`: Output and copy the URL in Orgmode image format: `[[url][alt text]]`
 * `-h, --help`: Show the help message and exit.
 
 **Examples:**

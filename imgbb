@@ -19,6 +19,7 @@ filepath=""
 expire_seconds="7200" # 2h - Set to "" for no expiry. or use flag -e 0, never or none.
 custom_name=""
 markdown_mode="false"
+org_mode="false"
 clipboard="$XDG_SESSION_TYPE"
 
 [ ! -e "$config_file" ] || . "$config_file"
@@ -35,6 +36,7 @@ print_usage() {
   echo "                          '0', 'none', 'never' to override default expiry."
   echo "  -n, --name NAME        Set a custom filename for the uploaded image."
   echo "  --markdown             Output/copy the URL in Markdown image format."
+  echo "  --org                  Output/copy the URL in Orgmode image format."
   echo "  -h, --help             Show this help message."
 }
 
@@ -107,6 +109,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --markdown)
       markdown_mode="true"
+      org_mode="false" # Sorry org, only one at a time.
+      shift
+      ;;
+    --org)
+      org_mode="true"
+      markdown_mode="false"
       shift
       ;;
     -h|--help)
@@ -308,6 +316,9 @@ if [ "$markdown_mode" = "true" ]; then
   # Basic markdown image syntax - assumes filename is not needed for alt text here.
   output_url="![](${image_url})"
   echo "Formatting as Markdown."
+elif [ "$org_mode" = "true" ]; then
+  output_url="[[${image_url}][]]"
+  echo "Formatting as orgmode."
 fi
 
 # Output the URL to terminal and copy to clipboard.

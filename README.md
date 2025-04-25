@@ -67,9 +67,9 @@ This script requires a **free API key** from ImgBB:
 1.  Go to [https://api.imgbb.com/](https://api.imgbb.com/) and register or log in to get your key.
 2.  Set the API key using *one* of these methods (script checks in this order):
     *  Store the key in `.config/imgbb/uploader/api_key`.
-      * **File** Create the config file `~/.config/imgbb_uploader.conf` and add a line like:
+      * **File** Move the `imgbb_uploader.conf` from the root directory of this project into `~/.config`.
+      * Edit the file to include your API key, and optionally set up your own personal defaults.
           ```bash
-          echo "api_key="YOUR_KEY_HERE" > ~/.config/imgbb_uploader.conf
           # Set permissions so only you can read it:
           chmod 600 ~/.config/imgbb_uploader.conf
           ```

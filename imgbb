@@ -13,13 +13,17 @@
 
 # === Default Configuration & Argument Parsing. ===
 
-api_key=""
 config_file="$HOME/.config/imgbb_uploader.conf"
+# imgbb first reads defaults from ~/.config/imgbb_uploader.conf.
+# If defaults not found in the config file, it reads them from the values
+# assigned below.
+# Optional flags override both config and values below.
+api_key=""
 filepath=""
-expire_seconds="7200" # 2h - Set to "" for no expiry. or use flag -e 0, never or none.
+expire_seconds=""
 custom_name=""
-markdown_mode="false"
-org_mode="false"
+markdown_mode=""
+org_mode=""
 clipboard="$XDG_SESSION_TYPE"
 
 [ ! -e "$config_file" ] || . "$config_file"
@@ -270,6 +274,8 @@ curl_opts+=(--form "image=@$TMP_IMG")
 
 if [ -n "$expire_seconds" ]; then
   curl_opts+=(--form "expiration=$expire_seconds")
+  # Confirm what value is being sent.
+  echo "Sending expiration: $expire_seconds seconds."
 fi
 if [ -n "$custom_name" ]; then
   curl_opts+=(--form "name=$custom_name")

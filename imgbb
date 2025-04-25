@@ -7,7 +7,7 @@
 # Author:      Ritchie Cunningham <ritchie@ritchiecunningham.co.uk>
 # Contributors: dacav <dacav@fastmail.com>
 # License:     GPL 3.0 License
-# Version:     1.2
+# Version:     2.0
 # Date:        22/04/2025
 # -----------------------------------------------------------------------------
 
@@ -22,8 +22,10 @@ api_key=""
 filepath=""
 expire_seconds=""
 custom_name=""
-markdown_mode=""
-org_mode=""
+markdown_mode="false"
+org_mode="false"
+select_mode="false"
+screenshot_tool=""
 clipboard="$XDG_SESSION_TYPE"
 
 [ ! -e "$config_file" ] || . "$config_file"
@@ -41,6 +43,7 @@ print_usage() {
   echo "  -n, --name NAME        Set a custom filename for the uploaded image."
   echo "  --markdown             Output/copy the URL in Markdown image format."
   echo "  --org                  Output/copy the URL in Orgmode image format."
+  echo "  -s, --select           Take screenshot of selected area for upload."
   echo "  -h, --help             Show this help message."
 }
 
@@ -121,6 +124,10 @@ while [[ $# -gt 0 ]]; do
       markdown_mode="false"
       shift
       ;;
+    -s|--select)
+      select_mode="true"
+      shift
+      ;;
     -h|--help)
       print_usage
       exit 0
@@ -143,6 +150,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Validate mutually exclusive input modes.
+if [ "$select_mode" = "true" ] && [ -n "$filepath" ]; then
+  die "Error: Cannot use --select (-s) flag and provided filepath simultaneously."
+fi
 
 # Check if filepath exists and is readable if provided.
 if [ -n "$filepath" ] && [ ! -r "$filepath" ]; then
@@ -173,6 +185,7 @@ check_command() {
   fi
 }
 # Define notify_cmd first based on whether notify-send exists.
+notify_cmd() { :; } # Default to no-up.
 if ! command -v notify-send &> /dev/null; then
   notify_cmd() { :; } # No-op if not found.
   echo "Warning: notify-send not found. Desktop notifications disabled." >&2
@@ -182,8 +195,11 @@ fi
 # Now check other dependencies.
 check_command curl
 check_command jq
-# Only check the clipboard command if we plan to use the clipboard.
-if [ -z "$filepath" ]; then
+# Check screenshot tool if needed.
+if [ "$select_mode" = "true" ]; then
+  check_command "$screenshot_tool"
+# Check clipboard tool only if using clipboard mode (and not select mode).
+elif [ -z "$filepath" ]; then
   case "$clipboard" in
   x11)
     check_command xclip
@@ -248,53 +264,94 @@ yank_wl() {
 }
 
 TMP_IMG="" # Path to the image file to upload.
+response="" # API response.
 image_source_description=""
-# Setup trap *only* if using clipboard mode.
-if [ -z "$filepath" ]; then
-  # === Clipboard Input Mode. ===
-  image_source_description="clipboard"
-  TMP_IMG="$(
-    case "$clipboard" in
-    x11)      paste_x11;;
-    wayland)  paste_wl;;
-    esac
-  )" || exit
-  trap 'rm -f "$TMP_IMG"' EXIT
-else
+temp_file_to_clean="" # Track temp file for cleanup if created.
+
+# === Determine Input and Upload ===
+
+# --- Set default trap (will be cleared or modified below) ---
+trap 'echo "Cleaning up temp files..."; rm -f "$temp_file_to_clean"' EXIT
+
+if [ "$select_mode" = "true" ]; then
+  # === Screenshot Mode ===
+  image_source_description="Screenshot selection"
+  screenshot_tool="scrot"
+  notify_cmd "ImgBB Uploader" "Select area for screenshot using $screenshot_tool..."
+
+  # Build base curl options (key, expiration, name).
+  curl_opts_base=(-s -S -f -L -X POST --form "key=$api_key")
+  if [ -n "$expire_seconds" ]; then curl_opts_base+=(--form "expiration=$expire_seconds"); fi
+  if [ -n "$custom_name" ]; then curl_opts_base+=(--form "name=$custom_name"); fi
+
+  notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
+
+  # Execute scrot -s -o and pipe to curl.
+  # Curl reads image from stdin (-) and we provide a default filename.
+  # Capture the response and potential curl errors.
+  temp_stderr=$(mktemp)
+  response=$(scrot -s -o /dev/stdout | curl "${curl_opts_base[@]}" --form "image=@-;filename=screenshot.png" 'https://api.imgbb.com/1/upload' 2>"$temp_stderr")
+
+  # Check the status of both commands in the pipeline.
+  pipeline_status=("${PIPESTATUS[@]}")
+  screenshot_status=${pipeline_status[0]}
+  upload_status=${pipeline_status[1]}
+  curl_stderr=$(cat "$temp_stderr")
+  rm -rf "$temp_stderr"
+
+  # Check for errors in the pipeline.
+  if [ "$screenshot_status" -ne 0 ]; then die "Screenshot command ($screenshot_tool) failed (status $screenshot_status)."; fi
+  if (( upload_status != 0 )); then die "curl command failed during upload (status $upload_status). Check network? Curl stderr: $curl_stderr"; fi
+
+  # Clear the trap, no temp file used in this mode.
+  trap '' EXIT
+elif [ -n "$filepath" ]; then
   # === File Input Mode. ===
   image_source_description="file '$filepath'"
-  TMP_IMG="$filepath" # Use the provided file path directly.
-  echo "Using image from file: $filepath"
+  TMP_IMG="$filepath" # Use the provided filepath directly.
+  echo "Using image from file: $filepath."
+  trap '' EXIT # Clear trap if we are not using temp files.
+
+  # Build curl options for file upload.
+  curl_opts=(-s -S -f -L -X POST)
+  curl_opts+=(--form "key=$api_key")
+  curl_opts+=(--form "image=@$TMP_IMG") # Use @filepath
+  if [ -n "$expire_seconds"  ]; then curl_opts+=(--form "expiration=$expire_seconds"); fi
+  if [ -n "$custom_name" ]; then curl_opts+=(--form "name=$custom_name"); fi
+
+  # Upload the image using curl.
+  notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
+  response=$(curl "${curl_opts[@]}" 'https://api.imgbb.com/1/upload')
+  #Check curl exit status.
+  if [ $? -ne 0 ]; then die "curl command failed during upload. Check network?"; fi
+else
+  # === Clipboard Input Mode ===
+  image_source_description="clipboard"
+  # Use helper functions to get image data into temp file $TMP_IMG.
+  TMP_IMG=""; # Reset it just in case.
+  case "$clipboard" in
+    x11) TMP_IMG=$(paste_x11);;
+    wayland) TMP_IMG=$(paste_wl);;
+  esac || exit 1 # Exit if paste function failed.
+  temp_file_to_clean="$TMP_IMG" # Mark temp file for cleanup by trap.
+  # Ensure trap is set correctly.
+  trap 'echo "Cleaning up temp file ($temp_file_to_clean)..."; rm -f "$temp_file_to_clean"' EXIT
+
+  # Build curl options for temp file upload.
+  curl_opts=(-s -S -f -L -X POST)
+  curl_opts+=(--form "key=$api_key")
+  curl_opts+=(--form "image=@$TMP_IMG") # Upload from temp file path.
+  if [ -n "$expire_seconds" ]; then curl_opts+=(--form "expiration=$expire_seconds"); fi
+  if [ -n "$custom_name" ]; then curl_opts+=(--form "name=$custom_name"); fi
+
+  # Upload the image using curl.
+  notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
+  response=$(curl "${curl_opts[@]}" 'https://api.imgbb.com/1/upload')
+  # Check curl exit status.
+  if [ $? -ne 0 ]; then die "curl command failed during upload. Check network?"; fi
 fi
 
-# Build curl options.
-curl_opts=(-s -S -f -L -X POST)
-curl_opts+=(--form "key=$api_key")
-curl_opts+=(--form "image=@$TMP_IMG")
-
-if [ -n "$expire_seconds" ]; then
-  curl_opts+=(--form "expiration=$expire_seconds")
-  # Confirm what value is being sent.
-  echo "Sending expiration: $expire_seconds seconds."
-fi
-if [ -n "$custom_name" ]; then
-  curl_opts+=(--form "name=$custom_name")
-  echo "Setting custom name to '$custom_name'."
-fi
-
-# Upload the image using curl.
-notify_cmd "ImgBB Uploader" "Uploading image from $image_source_description..."
-response=$(curl "${curl_opts[@]}" 'https://api.imgbb.com/1/upload')
-
-# Check curl exit status.
-if [ $? -ne 0 ]; then
-  notify_cmd -u critical "ImgBB Upload Error" "curl command failed during upload. Check network?"
-  echo "Error: curl command failed during upload. Check network connection." >&2
-  exit 1
-fi
-
-# Parse the JSON response using jq.
-# Check for overall success status from ImgBB API.
+# === Process Response (This is common to all modes) ===
 success=$(echo "$response" | jq -r '.success')
 
 if [ "$success" != "true" ]; then
@@ -339,5 +396,5 @@ wayland)  printf "%s\n" "$output_url" | yank_wl;;
 esac
 notify_cmd "ImgBB Uploader" "Success! URL copied: $output_url"
 
-# Temporary files are removed automatically by the 'trap' command on exit if they were created.
+# Temporary file (if used) is removed automatically by the 'trap' command on exit.
 exit 0

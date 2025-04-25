@@ -26,6 +26,7 @@ custom_name=""
 markdown_mode="false"
 org_mode="false"
 select_mode="false"
+monitor_num=""
 screenshot_tool=""
 clipboard="$XDG_SESSION_TYPE"
 
@@ -45,6 +46,7 @@ print_usage() {
   echo "  --markdown             Output/copy the URL in Markdown image format."
   echo "  --org                  Output/copy the URL in Orgmode image format."
   echo "  -s, --select           Take screenshot of selected area for upload."
+  echo "  -M, --monitor NUM      Take screenshot of monitor NUM (e.g., 0, 1) for upload"
   echo "  -h, --help             Show this help message."
 }
 
@@ -129,6 +131,15 @@ while [[ $# -gt 0 ]]; do
       select_mode="true"
       shift
       ;;
+    -M|--monitor)
+      monitor_num="$2"
+      # Check if it's a non-negative integer.
+      if ! [[ "$monitor_num" =~ ^[0-9]+$ ]]; then
+        die "Error: Monitor number '$monitor_num' is not a valid non-negative integer."
+      fi
+      shift
+      shift
+      ;;
     -h|--help)
       print_usage
       exit 0
@@ -155,6 +166,12 @@ done
 # Validate mutually exclusive input modes.
 if [ "$select_mode" = "true" ] && [ -n "$filepath" ]; then
   die "Error: Cannot use --select (-s) flag and provided filepath simultaneously."
+fi
+if [ -n "$monitor_num" ] && [ -n "$filepath" ]; then
+  die "Error: Cannot use --monitor (-M) flag and provided filepath simultaneously."
+fi
+if [ "$select_mode" = "true" ] && [ -n "$monitor_num" ]; then
+  die "Error: Cannot use --select (-s) and --monitor (-M) flags simultaneously."
 fi
 
 # Check if filepath exists and is readable if provided.
@@ -197,10 +214,12 @@ fi
 check_command curl
 check_command jq
 # Check screenshot tool if needed.
+# Monitor mode currently hardcodes scrot, ensure it's checked if -M is used.
+if [ -n "$monitor_num" ]; then check_command "scrot"; fi
 if [ "$select_mode" = "true" ]; then
   check_command "$screenshot_tool"
-# Check clipboard tool only if using clipboard mode (and not select mode).
 elif [ -z "$filepath" ]; then
+# Check clipboard tool only if using clipboard mode (and not select mode).
   case "$clipboard" in
   x11)
     check_command xclip
@@ -275,12 +294,11 @@ temp_file_to_clean="" # Track temp file for cleanup if created.
 curl_opts_base=(-s -S -f -L -X POST --form "key=$api_key")
 
 # --- Set default trap (will be cleared or modified below) ---
-trap 'echo "Cleaning up temp files..."; rm -f "$temp_file_to_clean"' EXIT
+trap 'rm -f "$temp_file_to_clean"' EXIT
 
 if [ "$select_mode" = "true" ]; then
   # === Screenshot Mode ===
   image_source_description="Screenshot selection"
-  screenshot_tool="scrot"
   notify_cmd "ImgBB Uploader" "Select area for screenshot using $screenshot_tool..."
 
   screenshot_cmd=""
@@ -295,7 +313,6 @@ if [ "$select_mode" = "true" ]; then
   curl_opts=("${curl_opts_base[@]}")
   if [ -n "$expire_seconds" ]; then curl_opts_base+=(--form "expiration=$expire_seconds"); fi
   if [ -n "$custom_name" ]; then curl_opts_base+=(--form "name=$custom_name"); fi
-
   # Add mode-specific image source (stdin) and the API URL.
   curl_opts+=(--form "image=@-;filename=screenshot.png")
   curl_opts+=("$imgbb_api_url")
@@ -322,6 +339,50 @@ if [ "$select_mode" = "true" ]; then
 
   # Clear the trap, no temp file used in this mode.
   trap '' EXIT
+elif [ -n "$monitor_num" ]; then
+  # === Screenshot Monitor Mode ===
+  image_source_description="Monitor $monitor_num screenshot"
+  screenshot_tool="scrot" # Requires scrot for --monitor flag.
+  notify_cmd "ImgBB Uploader" "Capturing monitor $monitor_num using $screenshot_tool..."
+
+  # Build full options array starting with common.
+  curl_opts=("${curl_opts_base[@]}")
+  if [ -n "$expire_seconds" ]; then
+    curl_opts+=(--form "expiration=$expire_seconds");
+  fi
+  if [ -n "$custom_name" ]; then curl_opts+=(--form "name=$custom_name"); fi
+
+  # --- Create temp file for scrot output ---
+  TMP_IMG=$(mktemp --suffix=.png) || die "Could not create temp file for screenshot."
+  temp_file_to_clean="$TMP_IMG" # Ensure trap cleans up.
+  trap 'rm -f "$temp_file_to_clean"' EXIT
+
+  rm -f "$TMP_IMG"
+  # --- Take screenshot saving to temp file ---
+  if ! scrot --monitor "$monitor_num" "$TMP_IMG"; then
+    #rm -f "$TMP_IMG" # Clean up failed/empty file.
+    die "Screenshot command ($screenshot_tool --monitor $monitor_num) failed (status $?). Check monitor index."
+  fi
+
+  # Add temp file path to curl options
+  curl_opts+=(--form "image=@$TMP_IMG")
+  curl_opts+=("$imgbb_api_url")
+
+  notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
+  temp_stderr=$(mktemp)
+  response=$(eval "$screenshot_cmd" | curl "${curl_opts[@]}" 2>"$temp_stderr")
+  pipeline_status=("${PIPESTATUS[@]}")
+  screenshot_status=${pipeline_status[0]}
+  upload_status=${pipeline_status[1]}
+  curl_stderr=$(cat "$temp_stderr")
+  rm -f "$temp_stderr"
+  if [ "$screenshot_status" -ne 0 ]; then
+    die "Screenshot command ($screenshot_tool --monitor $monitor_num) failed (status $screenshot_status).";
+  fi
+  if (( upload_status != 0 )); then
+    die "curl command failed during upload (status $upload_status). Check network? Curl stderr: $curl_stderr";
+  fi
+  trap '' EXIT # Clear trap.
 elif [ -n "$filepath" ]; then
   # === File Input Mode. ===
   image_source_description="file '$filepath'"

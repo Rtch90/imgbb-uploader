@@ -14,6 +14,7 @@
 # === Default Configuration & Argument Parsing. ===
 
 config_file="$HOME/.config/imgbb_uploader.conf"
+imgbb_api_url="https://api.imgbb.com/1/upload"
 # imgbb first reads defaults from ~/.config/imgbb_uploader.conf.
 # If defaults not found in the config file, it reads them from the values
 # assigned below.
@@ -270,6 +271,9 @@ temp_file_to_clean="" # Track temp file for cleanup if created.
 
 # === Determine Input and Upload ===
 
+# --- Define base curl options  ---
+curl_opts_base=(-s -S -f -L -X POST --form "key=$api_key")
+
 # --- Set default trap (will be cleared or modified below) ---
 trap 'echo "Cleaning up temp files..."; rm -f "$temp_file_to_clean"' EXIT
 
@@ -279,18 +283,27 @@ if [ "$select_mode" = "true" ]; then
   screenshot_tool="scrot"
   notify_cmd "ImgBB Uploader" "Select area for screenshot using $screenshot_tool..."
 
-  # Build base curl options (key, expiration, name).
-  curl_opts_base=(-s -S -f -L -X POST --form "key=$api_key")
+  screenshot_cmd=""
+  case "$screenshot_tool" in
+    maim)        screenshot_cmd="maim -s -f png /dev/stdout";;
+    scrot)       screenshot_cmd="scrot -s -o /dev/stdout";;
+    flameshot)   screenshot_cmd="flameshot gui -r";;
+    *)           die "Unsupported screenshot tool configured: '$screenshot_tool'";;
+  esac
+
+  # Build full options for this mode, starting with base.
+  curl_opts=("${curl_opts_base[@]}")
   if [ -n "$expire_seconds" ]; then curl_opts_base+=(--form "expiration=$expire_seconds"); fi
   if [ -n "$custom_name" ]; then curl_opts_base+=(--form "name=$custom_name"); fi
 
-  notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
+  # Add mode-specific image source (stdin) and the API URL.
+  curl_opts+=(--form "image=@-;filename=screenshot.png")
+  curl_opts+=("$imgbb_api_url")
 
-  # Execute scrot -s -o and pipe to curl.
-  # Curl reads image from stdin (-) and we provide a default filename.
+  notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
   # Capture the response and potential curl errors.
   temp_stderr=$(mktemp)
-  response=$(scrot -s -o /dev/stdout | curl "${curl_opts_base[@]}" --form "image=@-;filename=screenshot.png" 'https://api.imgbb.com/1/upload' 2>"$temp_stderr")
+  response=$(eval "$screenshot_cmd" | curl "${curl_opts[@]}" 2>"$temp_stderr")
 
   # Check the status of both commands in the pipeline.
   pipeline_status=("${PIPESTATUS[@]}")
@@ -300,8 +313,12 @@ if [ "$select_mode" = "true" ]; then
   rm -rf "$temp_stderr"
 
   # Check for errors in the pipeline.
-  if [ "$screenshot_status" -ne 0 ]; then die "Screenshot command ($screenshot_tool) failed (status $screenshot_status)."; fi
-  if (( upload_status != 0 )); then die "curl command failed during upload (status $upload_status). Check network? Curl stderr: $curl_stderr"; fi
+  if [ "$screenshot_status" -ne 0 ]; then
+    die "Screenshot command ($screenshot_tool) failed (status $screenshot_status).";
+  fi
+  if (( upload_status != 0 )); then
+    die "curl command failed during upload (status $upload_status). Check network? Curl stderr: $curl_stderr";
+  fi
 
   # Clear the trap, no temp file used in this mode.
   trap '' EXIT
@@ -312,16 +329,16 @@ elif [ -n "$filepath" ]; then
   echo "Using image from file: $filepath."
   trap '' EXIT # Clear trap if we are not using temp files.
 
-  # Build curl options for file upload.
-  curl_opts=(-s -S -f -L -X POST)
-  curl_opts+=(--form "key=$api_key")
+  # Build full options for this mode, starting with base.
+  curl_opts=("${curl_opts_base[@]}")
   curl_opts+=(--form "image=@$TMP_IMG") # Use @filepath
   if [ -n "$expire_seconds"  ]; then curl_opts+=(--form "expiration=$expire_seconds"); fi
   if [ -n "$custom_name" ]; then curl_opts+=(--form "name=$custom_name"); fi
+  curl_opts+=("$imgbb_api_url")
 
   # Upload the image using curl.
   notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
-  response=$(curl "${curl_opts[@]}" 'https://api.imgbb.com/1/upload')
+  response=$(curl "${curl_opts[@]}")
   #Check curl exit status.
   if [ $? -ne 0 ]; then die "curl command failed during upload. Check network?"; fi
 else
@@ -335,18 +352,18 @@ else
   esac || exit 1 # Exit if paste function failed.
   temp_file_to_clean="$TMP_IMG" # Mark temp file for cleanup by trap.
   # Ensure trap is set correctly.
-  trap 'echo "Cleaning up temp file ($temp_file_to_clean)..."; rm -f "$temp_file_to_clean"' EXIT
+  trap 'rm -f "$temp_file_to_clean"' EXIT
 
-  # Build curl options for temp file upload.
-  curl_opts=(-s -S -f -L -X POST)
-  curl_opts+=(--form "key=$api_key")
+  # Build full options for this mode, starting with base.
+  curl_opts=("${curl_opts_base[@]}")
   curl_opts+=(--form "image=@$TMP_IMG") # Upload from temp file path.
   if [ -n "$expire_seconds" ]; then curl_opts+=(--form "expiration=$expire_seconds"); fi
   if [ -n "$custom_name" ]; then curl_opts+=(--form "name=$custom_name"); fi
+  curl_opts+=("$imgbb_api_url")
 
   # Upload the image using curl.
   notify_cmd "ImgBB Uploader" "Uploading $image_source_description..."
-  response=$(curl "${curl_opts[@]}" 'https://api.imgbb.com/1/upload')
+  response=$(curl "${curl_opts[@]}")
   # Check curl exit status.
   if [ $? -ne 0 ]; then die "curl command failed during upload. Check network?"; fi
 fi

@@ -18,6 +18,7 @@ Ideal for quickly sharing screenshots or images in environments like IRC without
 * Specify a custom filename for the uploaded image on ImgBB.
 * Optionally output and copy the URL in Markdown format.
 * Optionally output and copy the URL in orgmode format.
+* Takes screenshot of selected region.
 * Copies the resulting URL to the X11 clipboard.
 * Provides desktop notifications for progress and success/failure (optional).
 

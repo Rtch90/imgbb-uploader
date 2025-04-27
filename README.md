@@ -19,6 +19,7 @@ Ideal for quickly sharing screenshots or images in environments like IRC without
 * Optionally output and copy the URL in Markdown format.
 * Optionally output and copy the URL in orgmode format.
 * Takes screenshot of selected region.
+* Takes screenshot of selected display.
 * Copies the resulting URL to the X11 clipboard.
 * Provides desktop notifications for progress and success/failure (optional).
 
@@ -42,6 +43,10 @@ Make sure you have the following command-line tools installed:
 * **notify-send (Optional):** Used for desktop notifications. The script works without it but won't show popups.
     ```bash
     sudo apt install notify-send # Debian (often in libnotify-bin).
+    ```
+* **scrot (Optional)**: Used for taking screenshots.
+    ``` bash
+    sudo apt install scrot # Debian.
     ```
 
 ## Installation
@@ -88,6 +93,8 @@ This script requires a **free API key** from ImgBB:
 * `-n, --name NAME`: Set a custom filename for the uploaded image on ImgBB.
 * `--markdown`: Output and copy the URL in Markdown image format: `![](URL)`
 * `--org`: Output and copy the URL in Orgmode image format: `[[url][alt text]]`
+* `-s, --select`: Take screenshot of selected area for upload.
+* `-M, --monitor NUM`: Take screenshot of monitor NUM (e.g., 0, 1) for upload.
 * `-h, --help`: Show the help message and exit.
 
 **Examples:**
@@ -107,6 +114,12 @@ imgbb -e 0
 
 # Upload file, give it a name on ImgBB, get Markdown output/copy
 imgbb -n "Cool Diagram" --markdown diagram.jpg
+
+# Take screenshot of selected region and upload
+imgbb -s
+
+# Take screenshot of display #2 and upload
+imgbb -M 2
 
 # Show help
 imgbb -h

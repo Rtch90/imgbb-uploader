@@ -8,7 +8,7 @@ Ideal for quickly sharing screenshots or images in environments like IRC without
 
 **Contributors:** dacav <dacav@fastmail.com>
 
-**Version:** 2.0 (as of 22/04/2025)
+**Version:** 2.0 (as of 25/04/2025)
 
 ## Features
 

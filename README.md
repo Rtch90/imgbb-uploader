@@ -4,7 +4,7 @@
 
 Ideal for quickly sharing screenshots or images in environments like IRC without needing to manually use the website interface.
 
-**Author:** Ritchie Cunningham <ritchie@ritchiecunningham.co.uk>
+**Author:** Ritchie Cunningham (Falco) <ritchie@ritchiecunningham.co.uk>
 
 **Contributors:** dacav <dacav@fastmail.com>
 
@@ -53,7 +53,7 @@ Make sure you have the following command-line tools installed:
 
 1.  **Clone the repository:**
     ```bash
-    git clone git@git.ritchiecunningham.co.uk:Rtch/imgbb-uploader.git
+    git clone git@github.com:hackers-libera/imgbb-uploader.git
     cd imgbb-uploader
     ```
 2.  **Make the script executable:**

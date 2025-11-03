@@ -311,8 +311,8 @@ if [ "$select_mode" = "true" ]; then
 
   # Build full options for this mode, starting with base.
   curl_opts=("${curl_opts_base[@]}")
-  if [ -n "$expire_seconds" ]; then curl_opts_base+=(--form "expiration=$expire_seconds"); fi
-  if [ -n "$custom_name" ]; then curl_opts_base+=(--form "name=$custom_name"); fi
+  if [ -n "$expire_seconds" ]; then curl_opts+=(--form "expiration=$expire_seconds"); fi
+  if [ -n "$custom_name" ]; then curl_opts+=(--form "name=$custom_name"); fi
   # Add mode-specific image source (stdin) and the API URL.
   curl_opts+=(--form "image=@-;filename=screenshot.png")
   curl_opts+=("$imgbb_api_url")
